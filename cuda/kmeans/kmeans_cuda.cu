@@ -161,7 +161,15 @@ kmeansCuda(float  **feature,				/* in: [npoints][nfeatures] */
 	cudaMemcpy(clusters_d, clusters[0], nclusters*nfeatures*sizeof(float), cudaMemcpyHostToDevice);
 
 	/* copy clusters to constant memory */
-	cudaMemcpyToSymbol("c_clusters",clusters[0],nclusters*nfeatures*sizeof(float),0,cudaMemcpyHostToDevice);
+	{ int cluster_size = nclusters * nfeatures;
+	  int max_size = ASSUMED_NR_CLUSTERS * 34;
+	  if (cluster_size > max_size) {
+	    fprintf(stderr, "WARNING: capping %d clusters*%d features=%d to constant mem limit %d\n",
+	            nclusters, nfeatures, cluster_size, max_size);
+	    cluster_size = max_size;
+	  }
+	  cudaMemcpyToSymbol("c_clusters",clusters[0],cluster_size*sizeof(float),0,cudaMemcpyHostToDevice);
+	}
 
 
     /* setup execution parameters.
