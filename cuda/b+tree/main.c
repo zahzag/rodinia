@@ -1881,22 +1881,22 @@ main(	int argc,
 	char *input_file = NULL;
 	char *command_file = NULL;
 	char *output="output.txt";
-	int query_scale = 1;
 	FILE * pFile;
 
 
 	// go through arguments
 	for(cur_arg=1; cur_arg<argc; cur_arg++){
-	  // check if file
+	  // check if -file
 	  if(strcmp(argv[cur_arg], "file")==0){
 	    // check if value provided
 	    if(argc>=cur_arg+1){
 	      input_file = argv[cur_arg+1];
 	      cur_arg = cur_arg+1;
+	      // value is not a number
 	    }
 	    // value not provided
 	    else{
-	      printf("ERROR: Missing value to file parameter\n");
+	      printf("ERROR: Missing value to -file parameter\n");
 	      return -1;
 	    }
 	  }
@@ -1905,6 +1905,7 @@ main(	int argc,
 	    if(argc>=cur_arg+1){
 	      command_file = argv[cur_arg+1];
 	      cur_arg = cur_arg+1;
+	      // value is not a number
 	    }
 	    // value not provided
 	    else{
@@ -1912,21 +1913,10 @@ main(	int argc,
 	      return -1;
 	    }
 	  }
-	  else if(strcmp(argv[cur_arg], "scale")==0){
-	    if(argc>=cur_arg+1){
-	      query_scale = atoi(argv[cur_arg+1]);
-	      if(query_scale < 1) query_scale = 1;
-	      cur_arg = cur_arg+1;
-	    }
-	    else{
-	      printf("ERROR: Missing value to scale parameter\n");
-	      return -1;
-	    }
-	  }
 	}
 	// Print configuration
 	  if((input_file==NULL)||(command_file==NULL))
-	    printf("Usage: ./b+tree file input_file command command_list [scale N]\n");
+	    printf("Usage: ./b+tree file input_file command command_list\n");
 
 	  // For debug
 	  printf("Input File: %s \n", input_file);
@@ -2155,11 +2145,10 @@ main(	int argc,
 			{
 
 				// get # of queries from user
-				int count;
-				sscanf(commandPointer, "%d", &count);
-				while(*commandPointer!=32 && *commandPointer!='\n')
-				  commandPointer++;
-				count *= query_scale;
+				int count, n;
+				sscanf(commandPointer, "%d%n", &count, &n);
+				commandPointer += n;
+				if (*commandPointer == 32) commandPointer++;
 
 				printf("\n ******command: k count=%d \n",count);
 				// if(count > 65535){
@@ -2286,16 +2275,13 @@ main(	int argc,
 			{
 
 				// get # of queries from user
-				int count;
-				sscanf(commandPointer, "%d", &count);
-				while(*commandPointer!=32 && *commandPointer!='\n')
-				  commandPointer++;
-
-				int rSize;
-				sscanf(commandPointer, "%d", &rSize);
-				while(*commandPointer!=32 && *commandPointer!='\n')
-				  commandPointer++;
-				count *= query_scale;
+				int count, rSize, n;
+				sscanf(commandPointer, "%d%n", &count, &n);
+				commandPointer += n;
+				if (*commandPointer == 32) commandPointer++;
+				sscanf(commandPointer, "%d%n", &rSize, &n);
+				commandPointer += n;
+				if (*commandPointer == 32) commandPointer++;
 
 				printf("\n******command: j count=%d, rSize=%d \n",count, rSize);
 				if(rSize > size || rSize < 0) {

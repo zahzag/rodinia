@@ -54,7 +54,7 @@ clean:
 	rm -rf $(program) $(obj)
 
 run: $(program)
-	./$(program) ../../data/bfs/graph1MW_6.txt 100
+	./$(program) ../../data/bfs/graph10M.txt
 run_no_build:
-	./$(program) ../../data/bfs/graph1MW_6.txt 100
+	./$(program) ../../data/bfs/graph10M.txt
 
