@@ -98,15 +98,13 @@ void run_bfs_cpu(int no_of_nodes, Node *h_graph_nodes, int edge_list_size,
 }
 
 void Usage(int argc, char**argv){
-  fprintf(stderr,"Usage: %s <input_file>\n", argv[0]);
+  fprintf(stderr,"Usage: %s <input_file> [repeat]\n", argv[0]);
 }
-
 //Apply BFS on a Graph
 void run_bfs_gpu(int no_of_nodes, Node *h_graph_nodes, int edge_list_size,
     int *h_graph_edges, char *h_graph_mask, char *h_updating_graph_mask,
-    char *h_graph_visited, int *h_cost)
+    char *h_graph_visited, int *h_cost, int repeat)
 {
-
   Node* d_graph_nodes;
   cudaMalloc((void**) &d_graph_nodes, sizeof(Node)*no_of_nodes) ;
   cudaMemcpy(d_graph_nodes, h_graph_nodes, sizeof(Node)*no_of_nodes, cudaMemcpyHostToDevice) ;
@@ -117,19 +115,13 @@ void run_bfs_gpu(int no_of_nodes, Node *h_graph_nodes, int edge_list_size,
 
   char* d_graph_mask;
   cudaMalloc((void**) &d_graph_mask, sizeof(char)*no_of_nodes) ;
-  cudaMemcpy(d_graph_mask, h_graph_mask, sizeof(char)*no_of_nodes, cudaMemcpyHostToDevice) ;
-
   char* d_updating_graph_mask;
   cudaMalloc((void**) &d_updating_graph_mask, sizeof(char)*no_of_nodes) ;
-  cudaMemcpy(d_updating_graph_mask, h_updating_graph_mask, sizeof(char)*no_of_nodes, cudaMemcpyHostToDevice) ;
-
   char* d_graph_visited;
   cudaMalloc((void**) &d_graph_visited, sizeof(char)*no_of_nodes) ;
-  cudaMemcpy(d_graph_visited, h_graph_visited, sizeof(char)*no_of_nodes, cudaMemcpyHostToDevice) ;
 
   int* d_cost;
   cudaMalloc((void**) &d_cost, sizeof(int)*no_of_nodes);
-  cudaMemcpy(d_cost, h_cost, sizeof(int)*no_of_nodes, cudaMemcpyHostToDevice) ;
 
   char h_over;
   char *d_over;
@@ -139,29 +131,54 @@ void run_bfs_gpu(int no_of_nodes, Node *h_graph_nodes, int edge_list_size,
   dim3 grid((no_of_nodes + MAX_THREADS_PER_BLOCK - 1) / MAX_THREADS_PER_BLOCK);
   dim3 threads(MAX_THREADS_PER_BLOCK);
 
-  long time = 0;
-  do {
-    h_over = 0;
-    cudaMemcpy(d_over, &h_over, sizeof(char), cudaMemcpyHostToDevice) ;
+  long total_time = 0;
 
-    cudaDeviceSynchronize();
-    auto start=std::chrono::steady_clock::now();MY_START_CLOCK(cuda bfs-cuda bfs.cu,0);
+  for (int r = 0; r < repeat; r++) {
+    // reset host state
+    for (int i = 0; i < no_of_nodes; i++) {
+      h_graph_mask[i] = 0;
+      h_updating_graph_mask[i] = 0;
+      h_graph_visited[i] = 0;
+      h_cost[i] = -1;
+    }
+    h_graph_mask[0] = 1;
+    h_graph_visited[0] = 1;
+    h_cost[0] = 0;
 
-    Kernel<<< grid, threads >>>(d_graph_nodes, d_graph_edges, d_graph_mask, d_updating_graph_mask, 
-                                d_graph_visited, d_cost, no_of_nodes);
-    Kernel2<<< grid, threads >>>(d_graph_mask, d_updating_graph_mask, d_graph_visited, d_over, no_of_nodes);
+    // upload reset state
+    cudaMemcpy(d_graph_mask, h_graph_mask, sizeof(char)*no_of_nodes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_updating_graph_mask, h_updating_graph_mask, sizeof(char)*no_of_nodes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_graph_visited, h_graph_visited, sizeof(char)*no_of_nodes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_cost, h_cost, sizeof(int)*no_of_nodes, cudaMemcpyHostToDevice);
 
-    cudaDeviceSynchronize();
-    auto end = std::chrono::steady_clock::now();
-    time += std::chrono:: duration_cast<std::chrono::nanoseconds>(end - start).count();MY_STOP_CLOCK(cuda bfs-cuda bfs.cu,0);
+    long time = 0;
+    do {
+      h_over = 0;
+      cudaMemcpy(d_over, &h_over, sizeof(char), cudaMemcpyHostToDevice);
 
-    cudaMemcpy(&h_over, d_over, sizeof(char), cudaMemcpyDeviceToHost) ;
-  } while(h_over);
+      cudaDeviceSynchronize();
+      auto start = std::chrono::steady_clock::now();
+      MY_START_CLOCK(cuda bfs-cuda bfs.cu,0);
 
-  printf("Total kernel execution time : %f (us)\n", time * 1e-3f);
+      Kernel<<< grid, threads >>>(d_graph_nodes, d_graph_edges, d_graph_mask, d_updating_graph_mask,
+                                  d_graph_visited, d_cost, no_of_nodes);
+      Kernel2<<< grid, threads >>>(d_graph_mask, d_updating_graph_mask, d_graph_visited, d_over, no_of_nodes);
 
-  // copy result from device to host
-  cudaMemcpy(h_cost, d_cost, sizeof(int)*no_of_nodes, cudaMemcpyDeviceToHost) ;
+      cudaDeviceSynchronize();
+      auto end = std::chrono::steady_clock::now();
+      time += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+      MY_STOP_CLOCK(cuda bfs-cuda bfs.cu,0);
+
+      cudaMemcpy(&h_over, d_over, sizeof(char), cudaMemcpyDeviceToHost);
+    } while (h_over);
+
+    total_time += time;
+  }
+
+  printf("Total kernel execution time (%d runs) : %f (us)\n", repeat, total_time * 1e-3f);
+
+  // copy final result from device to host
+  cudaMemcpy(h_cost, d_cost, sizeof(int)*no_of_nodes, cudaMemcpyDeviceToHost);
 
   cudaFree(d_graph_nodes);
   cudaFree(d_graph_edges);
@@ -171,7 +188,6 @@ void run_bfs_gpu(int no_of_nodes, Node *h_graph_nodes, int edge_list_size,
   cudaFree(d_cost);
   cudaFree(d_over);
 }
-
 //----------------------------------------------------------
 //--cambine:  main function
 //--author:    created by Jianbin Fang
@@ -185,9 +201,14 @@ int main(int argc, char * argv[])
   Node* h_graph_nodes;
   char *h_graph_mask, *h_updating_graph_mask, *h_graph_visited;
   char *input_f;
-  if(argc!=2){
+  int repeat = 1;
+  if (argc < 2 || argc > 3) {
     Usage(argc, argv);
     exit(0);
+  }
+  if (argc == 3) {
+    repeat = atoi(argv[2]);
+    if (repeat < 1) repeat = 1;
   }
 
   input_f = argv[1];
@@ -245,9 +266,9 @@ int main(int argc, char * argv[])
   h_cost[source]=0;
   h_cost_ref[source]=0;    
 
-  printf("run bfs (#nodes = %d) on device\n", no_of_nodes);
+  printf("run bfs %d time(s) (#nodes = %d) on device\n", repeat, no_of_nodes);
   run_bfs_gpu(no_of_nodes,h_graph_nodes,edge_list_size,h_graph_edges, 
-      h_graph_mask, h_updating_graph_mask, h_graph_visited, h_cost);  
+      h_graph_mask, h_updating_graph_mask, h_graph_visited, h_cost, repeat);
 
   printf("run bfs (#nodes = %d) on host (cpu) \n", no_of_nodes);
   // initalize the memory again
